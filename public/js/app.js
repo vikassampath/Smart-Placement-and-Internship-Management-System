@@ -265,6 +265,31 @@ function renderHome() {
       </div>
     </section>
 
+    <!-- EXPLORE BY DOMAIN -->
+    <section class="domain-explore-section">
+      <div class="container">
+        <div class="domain-explore-heading">
+          <div>
+            <span class="eyebrow">Explore by interest</span>
+            <h2 class="section-title mb-2">Find your next opportunity</h2>
+            <p>Start with a field you enjoy. You can refine your search anytime.</p>
+          </div>
+          <button class="btn btn-outline-glass" onclick="navigate('internships')">
+            Browse all roles <i class="fas fa-arrow-right ms-2"></i>
+          </button>
+        </div>
+        <div class="domain-explore-grid">
+          ${[['Full Stack','fa-layer-group'],['Data Science','fa-chart-line'],['AI/ML','fa-brain'],['Backend','fa-server'],['Mobile','fa-mobile-alt'],['Design','fa-pen-ruler']]
+            .map(([domain, icon]) => `
+              <button class="domain-shortcut" onclick="navigate('internships',{domain:'${domain}'})">
+                <span class="domain-shortcut-icon"><i class="fas ${icon}"></i></span>
+                <span class="domain-shortcut-copy"><strong>${domain}</strong><small>Explore open roles</small></span>
+                <i class="fas fa-arrow-right domain-shortcut-arrow"></i>
+              </button>`).join('')}
+        </div>
+      </div>
+    </section>
+
     <!-- CTA -->
     ${!currentUser ? `
     <section style="padding:0 0 80px;">
