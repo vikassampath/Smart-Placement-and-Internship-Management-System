@@ -19,6 +19,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   navigate(getRouteFromHash() || 'home');
 });
 
+window.addEventListener('hashchange', () => {
+  const route = getRouteFromHash();
+  if (route && route !== currentPage) navigate(route);
+});
+
 function getRouteFromHash() {
   const hash = location.hash.replace('#', '');
   const valid = ['home','internships','login','register','dashboard','applications','admin','profile'];
@@ -87,8 +92,13 @@ const api = {
   async request(method, url, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include' };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    return res.json();
+    try {
+      const res = await fetch(url, opts);
+      const data = await res.json();
+      return res.ok ? data : { success: false, message: data.message || `Request failed (${res.status})` };
+    } catch (error) {
+      return { success: false, message: 'Unable to reach the server. Please try again.' };
+    }
   },
   get:    url       => api.request('GET',    url),
   post:   (url, b)  => api.request('POST',   url, b),
@@ -101,7 +111,7 @@ function toast(msg, type = 'success') {
   const icons = { success: 'fa-check-circle', error: 'fa-exclamation-circle', info: 'fa-info-circle', warning: 'fa-exclamation-triangle' };
   const t = document.createElement('div');
   t.className = `toast-msg toast-${type}`;
-  t.innerHTML = `<i class="fas ${icons[type]}"></i><span>${msg}</span>`;
+  t.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${escapeHtml(msg)}</span>`;
   document.getElementById('toastContainer').appendChild(t);
   setTimeout(() => {
     t.style.animation = 'toastOut 0.3s ease forwards';
@@ -110,6 +120,9 @@ function toast(msg, type = 'success') {
 }
 
 // ─── Utility Helpers ───────────────────────────────────────────────────
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
 function fmtStipend(s) { return s ? `₹${(+s).toLocaleString('en-IN')}/mo` : 'Unpaid'; }
 function domainIcon(d) {
   const map = { 'Full Stack':'🌐','Data Science':'📊','AI/ML':'🤖','Backend':'⚙️',
@@ -117,7 +130,7 @@ function domainIcon(d) {
   return map[d] || '💼';
 }
 function companyInitials(c = 'X') { return (c[0] || 'X').toUpperCase(); }
-function statusBadge(s) { return `<span class="status-badge status-${s}">${s}</span>`; }
+function statusBadge(s) { const status = escapeHtml(s || 'applied'); return `<span class="status-badge status-${status}">${status}</span>`; }
 function timeAgo(dt) {
   if (!dt) return '';
   const d = Math.floor((Date.now() - new Date(dt).getTime()) / 86400000);
@@ -321,28 +334,29 @@ async function loadHomeInternships() {
 function internshipCardHtml(i) {
   const applied = appliedIdsCached.has(i.id);
   const grad = companyGrad(i.company);
+  const encodedInternship = encodeURIComponent(JSON.stringify(i)).replace(/'/g, '%27');
   return `
     <div class="col-md-6 col-xl-4">
-      <div class="glass-card internship-card h-100 d-flex flex-column" onclick="showInternshipDetail(${i.id}, '${encodeURIComponent(JSON.stringify(i))}')">
+      <div class="glass-card internship-card h-100 d-flex flex-column" onclick="showInternshipDetail(${Number(i.id)}, '${encodedInternship}')">
         ${applied ? `<div class="applied-badge"><i class="fas fa-check me-1"></i>Applied</div>` : ''}
         <div class="d-flex align-items-start gap-3 mb-3">
           <div class="company-thumb company-thumb-placeholder" style="background:${grad};">
-            <span style="font-size:1.05rem;font-weight:800;color:white;">${companyInitials(i.company)}</span>
+            <span style="font-size:1.05rem;font-weight:800;color:white;">${escapeHtml(companyInitials(i.company))}</span>
           </div>
           <div style="min-width:0;">
-            <div class="card-company-name">${i.company}</div>
-            <div class="card-job-title">${i.title}</div>
+            <div class="card-company-name">${escapeHtml(i.company)}</div>
+            <div class="card-job-title">${escapeHtml(i.title)}</div>
           </div>
         </div>
         <div class="chip-row">
-          ${i.location  ? `<span class="chip"><i class="fas fa-map-marker-alt"></i>${i.location}</span>` : ''}
-          ${i.duration  ? `<span class="chip"><i class="fas fa-clock"></i>${i.duration}</span>` : ''}
+          ${i.location  ? `<span class="chip"><i class="fas fa-map-marker-alt"></i>${escapeHtml(i.location)}</span>` : ''}
+          ${i.duration  ? `<span class="chip"><i class="fas fa-clock"></i>${escapeHtml(i.duration)}</span>` : ''}
           ${i.openings  ? `<span class="chip"><i class="fas fa-users"></i>${i.openings} openings</span>` : ''}
           ${i.min_cgpa ? `<span class="chip"><i class="fas fa-graduation-cap"></i>CGPA ${Number(i.min_cgpa).toFixed(1)}+</span>` : ''}
         </div>
         <div class="card-footer-row mt-auto">
           <span class="stipend-text">${fmtStipend(i.stipend)}</span>
-          <span class="domain-pill">${domainIcon(i.domain)} ${i.domain || 'Other'}</span>
+          <span class="domain-pill">${domainIcon(i.domain)} ${escapeHtml(i.domain || 'Other')}</span>
         </div>
       </div>
     </div>`;
@@ -375,7 +389,7 @@ function renderInternships(params = {}) {
             <div class="input-icon-wrap">
               <i class="fas fa-search ii-icon"></i>
               <input type="text" id="searchInput" class="form-control glass-input"
-                placeholder="Role, company, or keyword…" value="${internshipSearch}"
+                placeholder="Role, company, or keyword…" value="${escapeHtml(internshipSearch)}"
                 oninput="debounceSearch()" />
             </div>
           </div>
@@ -465,26 +479,26 @@ function showInternshipDetail(id, encoded) {
     <div class="modal-header border-0" style="padding:28px 32px 0;">
       <div class="d-flex align-items-start gap-3 flex-grow-1">
         <div class="company-thumb company-thumb-placeholder" style="width:56px;height:56px;border-radius:14px;background:${grad};flex-shrink:0;">
-          <span style="font-size:1.2rem;font-weight:800;color:white;">${companyInitials(i.company)}</span>
+          <span style="font-size:1.2rem;font-weight:800;color:white;">${escapeHtml(companyInitials(i.company))}</span>
         </div>
         <div>
-          <h5 class="fw-700 mb-1" style="font-size:1.15rem;">${i.title}</h5>
-          <div style="color:var(--text-400);font-size:.87rem;">${i.company} · ${i.location || 'Remote'}</div>
+          <h5 class="fw-700 mb-1" style="font-size:1.15rem;">${escapeHtml(i.title)}</h5>
+          <div style="color:var(--text-400);font-size:.87rem;">${escapeHtml(i.company)} · ${escapeHtml(i.location || 'Remote')}</div>
         </div>
       </div>
       <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
     </div>
     <div class="modal-body" style="padding:22px 32px;">
       <div class="d-flex flex-wrap gap-2 mb-4">
-        <span class="chip"><i class="fas fa-clock"></i>${i.duration || '—'}</span>
+        <span class="chip"><i class="fas fa-clock"></i>${escapeHtml(i.duration || '—')}</span>
         <span class="chip"><i class="fas fa-money-bill-wave"></i>${fmtStipend(i.stipend)}</span>
         <span class="chip"><i class="fas fa-users"></i>${i.openings || '?'} openings</span>
         ${i.min_cgpa ? `<span class="chip"><i class="fas fa-graduation-cap"></i>CGPA ${Number(i.min_cgpa).toFixed(1)}+</span>` : ''}
-        <span class="domain-pill">${domainIcon(i.domain)} ${i.domain || 'Other'}</span>
+        <span class="domain-pill">${domainIcon(i.domain)} ${escapeHtml(i.domain || 'Other')}</span>
         ${statusBadge(i.status || 'active')}
       </div>
-      ${i.description ? `<h6 class="fw-700 mb-2" style="font-size:.88rem;color:var(--text-300);text-transform:uppercase;letter-spacing:.06em;">About the Role</h6><p style="font-size:.9rem;line-height:1.75;margin-bottom:20px;">${i.description}</p>` : ''}
-      ${i.requirements ? `<h6 class="fw-700 mb-2" style="font-size:.88rem;color:var(--text-300);text-transform:uppercase;letter-spacing:.06em;">Skills Required</h6><div>${i.requirements.split(',').map(s=>`<span class="skill-chip">${s.trim()}</span>`).join('')}</div>` : ''}
+      ${i.description ? `<h6 class="fw-700 mb-2" style="font-size:.88rem;color:var(--text-300);text-transform:uppercase;letter-spacing:.06em;">About the Role</h6><p style="font-size:.9rem;line-height:1.75;margin-bottom:20px;">${escapeHtml(i.description)}</p>` : ''}
+      ${i.requirements ? `<h6 class="fw-700 mb-2" style="font-size:.88rem;color:var(--text-300);text-transform:uppercase;letter-spacing:.06em;">Skills Required</h6><div>${i.requirements.split(',').map(s=>`<span class="skill-chip">${escapeHtml(s.trim())}</span>`).join('')}</div>` : ''}
     </div>
     <div class="modal-footer border-0" style="padding:0 32px 28px;gap:10px;">
       <button class="btn btn-outline-glass" data-bs-dismiss="modal">Close</button>
@@ -492,7 +506,7 @@ function showInternshipDetail(id, encoded) {
         ? `<button class="btn btn-gradient px-4" onclick="bootstrap.Modal.getInstance(document.getElementById('internshipModal')).hide();navigate('login')">Login to Apply</button>`
         : applied
         ? `<button class="btn btn-outline-glass px-4" disabled style="opacity:.5;cursor:not-allowed;"><i class="fas fa-check me-2"></i>Already Applied</button>`
-        : `<button class="btn btn-gradient px-4" onclick="openApplyModal(${i.id},'${i.title.replace(/'/g,"\\'")}','${i.company.replace(/'/g,"\\'")}')">
+        : `<button class="btn btn-gradient px-4" onclick="openApplyModal(${i.id}, '${encodeURIComponent(JSON.stringify(i)).replace(/'/g, '%27')}')">
              <i class="fas fa-paper-plane me-2"></i>Apply Now
            </button>`}
     </div>`;
@@ -500,11 +514,12 @@ function showInternshipDetail(id, encoded) {
 }
 
 // ─── Apply Modal ───────────────────────────────────────────────────────
-function openApplyModal(id, title, company) {
+function openApplyModal(id, encodedInternship) {
+  const internship = JSON.parse(decodeURIComponent(encodedInternship));
   bootstrap.Modal.getInstance(document.getElementById('internshipModal'))?.hide();
   applyingToId = id;
-  document.getElementById('applyModalTitle').textContent = title;
-  document.getElementById('applyModalCompany').innerHTML = `<i class="fas fa-building"></i>${company}`;
+  document.getElementById('applyModalTitle').textContent = internship.title;
+  document.getElementById('applyModalCompany').textContent = internship.company;
   document.getElementById('coverLetter').value = '';
   new bootstrap.Modal(document.getElementById('applyModal')).show();
 }
@@ -611,9 +626,9 @@ function renderRegister() {
                 <input type="email" id="regEmail" class="form-control glass-input" placeholder="you@college.com" required /></div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Password * <span style="color:var(--text-500);font-size:.78rem;">(min 6 chars)</span></label>
+              <label class="form-label">Password * <span style="color:var(--text-500);font-size:.78rem;">(min 8 chars)</span></label>
               <div class="input-icon-wrap"><i class="fas fa-lock ii-icon"></i>
-                <input type="password" id="regPassword" class="form-control glass-input" placeholder="••••••••" required minlength="6" /></div>
+                <input type="password" id="regPassword" class="form-control glass-input" placeholder="••••••••" required minlength="8" maxlength="72" /></div>
             </div>
             <div class="col-md-6">
               <label class="form-label">Phone</label>
@@ -689,10 +704,10 @@ async function renderDashboard() {
     <div class="page-header" style="padding-bottom:32px;margin-bottom:36px;">
       <div class="container">
         <div class="d-flex align-items-center gap-16 gap-md-4">
-          <div class="avatar avatar-lg">${currentUser.name[0].toUpperCase()}</div>
+          <div class="avatar avatar-lg">${escapeHtml(currentUser.name[0].toUpperCase())}</div>
           <div>
-            <h1 style="font-size:clamp(1.5rem,3vw,2.2rem);margin-bottom:4px;">Hello, ${currentUser.name.split(' ')[0]}! 👋</h1>
-            <p style="margin:0;color:var(--text-400);font-size:.9rem;">${currentUser.email} · ${currentUser.college || 'Student'}</p>
+            <h1 style="font-size:clamp(1.5rem,3vw,2.2rem);margin-bottom:4px;">Hello, ${escapeHtml(currentUser.name.split(' ')[0])}! 👋</h1>
+            <p style="margin:0;color:var(--text-400);font-size:.9rem;">${escapeHtml(currentUser.email)} · ${escapeHtml(currentUser.college || 'Student')}</p>
           </div>
         </div>
       </div>
@@ -727,12 +742,12 @@ async function renderDashboard() {
           <div class="glass-card p-4 mb-4 profile-mini-card">
             <h5 class="fw-700 mb-3"><i class="fas fa-user me-2" style="color:var(--accent-light);"></i>My Profile</h5>
             <div class="text-center mb-3">
-              <div class="avatar avatar-lg mx-auto mb-3">${currentUser.name[0].toUpperCase()}</div>
-              <div class="fw-700">${currentUser.name}</div>
-              <div style="color:var(--text-400);font-size:.84rem;">${currentUser.college || '—'}</div>
+              <div class="avatar avatar-lg mx-auto mb-3">${escapeHtml(currentUser.name[0].toUpperCase())}</div>
+              <div class="fw-700">${escapeHtml(currentUser.name)}</div>
+              <div style="color:var(--text-400);font-size:.84rem;">${escapeHtml(currentUser.college || '—')}</div>
               ${currentUser.cgpa ? `<div class="mt-2"><span class="domain-pill">⭐ CGPA: ${currentUser.cgpa}</span></div>` : ''}
             </div>
-            ${currentUser.skills ? `<div class="mt-2">${currentUser.skills.split(',').slice(0,5).map(s=>`<span class="skill-chip">${s.trim()}</span>`).join('')}</div>` : ''}
+            ${currentUser.skills ? `<div class="mt-2">${currentUser.skills.split(',').slice(0,5).map(s=>`<span class="skill-chip">${escapeHtml(s.trim())}</span>`).join('')}</div>` : ''}
             <button class="btn btn-outline-glass w-100 mt-3" onclick="navigate('profile')"><i class="fas fa-edit me-2"></i>Edit Profile</button>
           </div>
           <div class="glass-card p-4">
@@ -781,8 +796,8 @@ async function loadDashboardData() {
         <tbody>
           ${apps.map(a => `
             <tr>
-              <td class="td-primary">${a.title}</td>
-              <td>${a.company}</td>
+              <td class="td-primary">${escapeHtml(a.title)}</td>
+              <td>${escapeHtml(a.company)}</td>
               <td>${statusBadge(a.status)}</td>
               <td>${timeAgo(a.applied_at)}</td>
             </tr>`).join('')}
@@ -850,9 +865,9 @@ async function renderApplications() {
         <tbody>
           ${apps.map(a => `
             <tr>
-              <td class="td-primary">${a.title}</td>
-              <td>${a.company}</td>
-              <td>${a.location || '—'}</td>
+              <td class="td-primary">${escapeHtml(a.title)}</td>
+              <td>${escapeHtml(a.company)}</td>
+              <td>${escapeHtml(a.location || '—')}</td>
               <td>${fmtStipend(a.stipend)}</td>
               <td>${statusBadge(a.status)}</td>
               <td style="white-space:nowrap;">${timeAgo(a.applied_at)}</td>
@@ -874,23 +889,23 @@ function renderProfile() {
     <div class="container" style="max-width:700px;">
       <div class="glass-card p-5">
         <div class="text-center mb-4">
-          <div class="avatar avatar-xl mx-auto mb-3">${currentUser.name[0].toUpperCase()}</div>
-          <h4>${currentUser.name}</h4>
-          <p style="font-size:.88rem;color:var(--text-400);margin:0;">${currentUser.email}</p>
+          <div class="avatar avatar-xl mx-auto mb-3">${escapeHtml(currentUser.name[0].toUpperCase())}</div>
+          <h4>${escapeHtml(currentUser.name)}</h4>
+          <p style="font-size:.88rem;color:var(--text-400);margin:0;">${escapeHtml(currentUser.email)}</p>
         </div>
         <form onsubmit="saveProfile(event)" novalidate>
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">Full Name</label>
-              <input type="text" id="profName" class="form-control glass-input" value="${currentUser.name || ''}" required />
+              <input type="text" id="profName" class="form-control glass-input" value="${escapeHtml(currentUser.name || '')}" required />
             </div>
             <div class="col-md-6">
               <label class="form-label">Phone</label>
-              <input type="text" id="profPhone" class="form-control glass-input" value="${currentUser.phone || ''}" />
+              <input type="text" id="profPhone" class="form-control glass-input" value="${escapeHtml(currentUser.phone || '')}" />
             </div>
             <div class="col-md-8">
               <label class="form-label">College / University</label>
-              <input type="text" id="profCollege" class="form-control glass-input" value="${currentUser.college || ''}" />
+              <input type="text" id="profCollege" class="form-control glass-input" value="${escapeHtml(currentUser.college || '')}" />
             </div>
             <div class="col-md-4">
               <label class="form-label">CGPA</label>
@@ -898,7 +913,7 @@ function renderProfile() {
             </div>
             <div class="col-12">
               <label class="form-label">Skills <span style="color:var(--text-500);font-size:.78rem;">(comma-separated)</span></label>
-              <input type="text" id="profSkills" class="form-control glass-input" value="${currentUser.skills || ''}" placeholder="React, Java, Python…" />
+              <input type="text" id="profSkills" class="form-control glass-input" value="${escapeHtml(currentUser.skills || '')}" placeholder="React, Java, Python…" />
             </div>
             <div class="col-12 mt-2">
               <button type="submit" class="btn btn-gradient w-100 py-3"><i class="fas fa-save me-2"></i>Save Changes</button>
@@ -1004,8 +1019,8 @@ async function loadAdminOverview() {
                 <thead><tr><th>Student</th><th>Internship</th><th>Company</th><th>Status</th></tr></thead>
                 <tbody>${(res.recentApps||[]).map(a=>`
                   <tr>
-                    <td class="td-primary">${a.student_name}</td>
-                    <td>${a.title}</td><td>${a.company}</td>
+                    <td class="td-primary">${escapeHtml(a.student_name)}</td>
+                    <td>${escapeHtml(a.title)}</td><td>${escapeHtml(a.company)}</td>
                     <td>${statusBadge(a.status)}</td>
                   </tr>`).join('')}
                 </tbody>
@@ -1053,15 +1068,15 @@ async function loadAdminInternships(page = adminInternPage) {
         <tbody>
           ${(res.internships||[]).map(i=>`
             <tr>
-              <td class="td-primary">${i.title}</td>
-              <td>${i.company}</td>
-              <td>${i.location||'—'}</td>
+              <td class="td-primary">${escapeHtml(i.title)}</td>
+              <td>${escapeHtml(i.company)}</td>
+              <td>${escapeHtml(i.location||'—')}</td>
               <td>${fmtStipend(i.stipend)}</td>
-              <td>${i.duration||'—'}</td>
-              <td>${i.openings||'—'}</td>
+              <td>${escapeHtml(i.duration||'—')}</td>
+              <td>${escapeHtml(i.openings||'—')}</td>
               <td>${statusBadge(i.status||'active')}</td>
               <td style="white-space:nowrap;">
-                <button class="btn-icon btn-icon-edit me-1" title="Edit" onclick='openEditInternship(${JSON.stringify(i)})'><i class="fas fa-edit"></i></button>
+                <button class="btn-icon btn-icon-edit me-1" title="Edit" onclick="openEditInternship('${encodeURIComponent(JSON.stringify(i)).replace(/'/g, '%27')}')"><i class="fas fa-edit"></i></button>
                 <button class="btn-icon btn-icon-delete" title="Delete" onclick="deleteInternship(${i.id})"><i class="fas fa-trash"></i></button>
               </td>
             </tr>`).join('')}
@@ -1093,12 +1108,12 @@ async function loadAdminApplications(page = adminAppPage) {
           ${(res.applications||[]).map(a=>`
             <tr>
               <td>
-                <div class="td-primary">${a.student_name}</div>
-                <div style="font-size:.75rem;color:var(--text-500);">${a.student_email}</div>
+                <div class="td-primary">${escapeHtml(a.student_name)}</div>
+                <div style="font-size:.75rem;color:var(--text-500);">${escapeHtml(a.student_email)}</div>
               </td>
-              <td style="font-size:.82rem;">${a.college||'—'}</td>
-              <td>${a.internship_title}</td>
-              <td>${a.company}</td>
+              <td style="font-size:.82rem;">${escapeHtml(a.college||'—')}</td>
+              <td>${escapeHtml(a.internship_title)}</td>
+              <td>${escapeHtml(a.company)}</td>
               <td style="white-space:nowrap;font-size:.82rem;">${timeAgo(a.applied_at)}</td>
               <td>${statusBadge(a.status)}</td>
               <td>
@@ -1135,11 +1150,11 @@ async function loadAdminUsers(page = adminUserPage) {
         <tbody>
           ${(res.users||[]).map(u=>`
             <tr>
-              <td class="td-primary">${u.name}</td>
-              <td style="font-size:.84rem;">${u.email}</td>
-              <td style="font-size:.82rem;">${u.college||'—'}</td>
+              <td class="td-primary">${escapeHtml(u.name)}</td>
+              <td style="font-size:.84rem;">${escapeHtml(u.email)}</td>
+              <td style="font-size:.82rem;">${escapeHtml(u.college||'—')}</td>
               <td>${u.cgpa||'—'}</td>
-              <td>${u.skills ? u.skills.split(',').slice(0,3).map(s=>`<span class="skill-chip">${s.trim()}</span>`).join('') : '—'}</td>
+              <td>${u.skills ? u.skills.split(',').slice(0,3).map(s=>`<span class="skill-chip">${escapeHtml(s.trim())}</span>`).join('') : '—'}</td>
               <td style="white-space:nowrap;font-size:.82rem;">${timeAgo(u.created_at)}</td>
             </tr>`).join('')}
         </tbody>
@@ -1170,7 +1185,8 @@ function openAddInternship() {
 }
 
 // Admin: Edit Internship
-function openEditInternship(i) {
+function openEditInternship(encodedInternship) {
+  const i = JSON.parse(decodeURIComponent(encodedInternship));
   document.getElementById('adminModalTitle').textContent = 'Edit Internship';
   document.getElementById('adminSaveLabel').textContent = 'Save Changes';
   const fields = { editId: i.id, fTitle: i.title, fCompany: i.company, fLocation: i.location,
@@ -1212,8 +1228,8 @@ async function deleteInternship(id) {
 // ─── Helper: Empty State HTML ──────────────────────────────────────────
 function emptyState(title, sub = '') {
   return `<div class="col-12"><div class="empty-state">
-    <img src="/images/empty-state.png" alt="${title}" />
-    <p style="font-weight:600;color:var(--text-200);">${title}</p>
-    ${sub ? `<p style="font-size:.85rem;">${sub}</p>` : ''}
+    <img src="/images/empty-state.png" alt="${escapeHtml(title)}" />
+    <p style="font-weight:600;color:var(--text-200);">${escapeHtml(title)}</p>
+    ${sub ? `<p style="font-size:.85rem;">${escapeHtml(sub)}</p>` : ''}
   </div></div>`;
 }

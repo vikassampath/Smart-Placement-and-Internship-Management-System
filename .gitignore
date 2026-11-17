@@ -36,3 +36,7 @@ java-version/.github/java-upgrade/
 
 # Misc
 .cache/
+
+# Local SQL.js database
+data/
+*.sqlite
