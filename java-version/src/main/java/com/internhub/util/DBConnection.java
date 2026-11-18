@@ -8,10 +8,12 @@ import java.sql.*;
  * Configure credentials in db.properties
  */
 public class DBConnection {
-    // ── Change these for your local MySQL setup ──────────────
-    private static final String URL      = "jdbc:mysql://localhost:3306/internhub_db?useSSL=false&serverTimezone=UTC";
-    private static final String USERNAME = "root";
-    private static final String PASSWORD = "";  // ← Your MySQL password
+    // Configure with INTERNHUB_DB_* environment variables.
+    private static final String URL = setting(
+            "INTERNHUB_DB_URL",
+            "jdbc:mysql://localhost:3306/internhub_db?useSSL=false&serverTimezone=UTC");
+    private static final String USERNAME = setting("INTERNHUB_DB_USER", "root");
+    private static final String PASSWORD = setting("INTERNHUB_DB_PASSWORD", "");
     // ─────────────────────────────────────────────────────────
 
     static {
@@ -28,6 +30,11 @@ public class DBConnection {
      */
     public static Connection getConnection() throws SQLException {
         return DriverManager.getConnection(URL, USERNAME, PASSWORD);
+    }
+
+    private static String setting(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null ? defaultValue : value;
     }
 
     /**

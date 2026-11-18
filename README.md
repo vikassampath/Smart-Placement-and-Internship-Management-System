@@ -50,6 +50,8 @@ mvn package
 
 The WAR is written to `target/internhub.war`. The Java prototype is separate from the main Node.js app and requires a compatible servlet container and MySQL configuration to run.
 
+Configure its connection with `INTERNHUB_DB_URL`, `INTERNHUB_DB_USER`, and `INTERNHUB_DB_PASSWORD`. Local defaults target MySQL on `localhost` with the `root` account; use a dedicated MySQL account and a private password outside local development.
+
 ## Repository layout
 
 ```text

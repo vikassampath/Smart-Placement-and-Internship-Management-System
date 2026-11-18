@@ -59,6 +59,7 @@ public class LoginServlet extends HttpServlet {
 
             // Create session
             HttpSession session = req.getSession(true);
+            req.changeSessionId();
             session.setAttribute("user", user);
             session.setMaxInactiveInterval(24 * 60 * 60); // 24 hours
 
