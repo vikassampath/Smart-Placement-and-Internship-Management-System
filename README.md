@@ -13,7 +13,7 @@ Campus2Career is a student internship and placement portal. The primary applicat
 
 ## Run the Node.js application
 
-Requirements: Node.js 18 or newer and npm.
+Requirements: Node.js 18 or newer and npm. The server uses Express 5.
 
 ```sh
 npm ci
@@ -29,7 +29,9 @@ The included demo accounts are for local development only:
 | Admin | `admin@atme.com` | `admin123` |
 | Student | `vikas@student.com` | `student123` |
 
-For production, set `NODE_ENV=production` and provide a strong, private `SESSION_SECRET`. Use a production session store and database suitable for your deployment, and replace the demo accounts.
+The login endpoint allows up to 10 failed attempts per IP in 15 minutes. Successful logins do not count toward this limit. The server also sends security headers and uses a content security policy that permits the app's current CDN assets.
+
+For production, set `NODE_ENV=production` and provide a strong, private `SESSION_SECRET`. The default Express session store is intended for local development; configure a persistent production session store and a database suitable for your deployment, and replace the demo accounts. When running behind a trusted reverse proxy, set `TRUST_PROXY_HOPS` to the number of trusted proxy hops so secure cookies work correctly.
 
 Run the JavaScript syntax check with:
 

@@ -1,17 +1,36 @@
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const initSqlJs = require('sql.js');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS);
+if (Number.isInteger(TRUST_PROXY_HOPS) && TRUST_PROXY_HOPS > 0) app.set('trust proxy', TRUST_PROXY_HOPS);
 const DB_PATH = path.resolve(process.env.DB_PATH || path.join(__dirname, 'data', 'campus2career.sqlite'));
 const SESSION_SECRET = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? null : 'local-development-secret-change-me');
 if (!SESSION_SECRET) throw new Error('SESSION_SECRET must be set when NODE_ENV=production');
 
 // ─── Middleware ────────────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+      fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdnjs.cloudflare.com'],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
+}));
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use((req, res, next) => {
@@ -26,6 +45,15 @@ app.use(session({
   saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 24 * 60 * 60 * 1000 }
 }));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+});
 
 // ─── In-Memory Database ────────────────────────────────────────────────────────
 let db;
@@ -236,7 +264,7 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Auth: Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const { password } = req.body;
@@ -330,13 +358,16 @@ app.post('/api/internships', requireAdmin, (req, res) => {
 app.put('/api/internships/:id', requireAdmin, (req, res) => {
   const { title, company, location, stipend, duration, domain, description, requirements, openings, status } = req.body;
   const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id < 1 || !dbGet('SELECT id FROM internships WHERE id = ?', [id])) return res.status(404).json({ success: false, message: 'Internship not found' });
+  const existingInternship = Number.isInteger(id) && id > 0
+    ? dbGet('SELECT id, status FROM internships WHERE id = ?', [id])
+    : null;
+  if (!existingInternship) return res.status(404).json({ success: false, message: 'Internship not found' });
   if (typeof title !== 'string' || !title.trim() || title.length > 200 || typeof company !== 'string' || !company.trim() || company.length > 200) return res.status(400).json({ success: false, message: 'A title and company name are required (200 characters maximum)' });
   if (status && !['active', 'closed'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid internship status' });
   if (stipend !== '' && stipend != null && (!Number.isFinite(Number(stipend)) || Number(stipend) < 0)) return res.status(400).json({ success: false, message: 'Stipend must be a non-negative number' });
   if (openings !== '' && openings != null && (!Number.isInteger(Number(openings)) || Number(openings) < 1)) return res.status(400).json({ success: false, message: 'Openings must be a positive whole number' });
   dbRun('UPDATE internships SET title=?, company=?, location=?, stipend=?, duration=?, domain=?, description=?, requirements=?, openings=?, status=? WHERE id=?',
-    [title.trim(), company.trim(), location || null, stipend === '' || stipend == null ? null : Number(stipend), duration || null, domain || null, description || null, requirements || null, openings === '' || openings == null ? null : Number(openings), status || 'active', id]);
+    [title.trim(), company.trim(), location || null, stipend === '' || stipend == null ? null : Number(stipend), duration || null, domain || null, description || null, requirements || null, openings === '' || openings == null ? 5 : Number(openings), status || existingInternship.status, id]);
   res.json({ success: true, message: 'Internship updated!' });
 });
 
@@ -457,8 +488,22 @@ app.put('/api/profile', requireAuth, async (req, res) => {
 // ─── Static SPA Catch-all ─────────────────────────────────────────────────────
 app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'API endpoint not found' }));
 
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  if (status >= 500) console.error('Request failed:', err);
+  const message = status === 400
+    ? 'Invalid request body'
+    : status === 413
+      ? 'Request body is too large'
+      : status >= 500
+        ? 'Internal server error'
+        : 'Request could not be processed';
+  res.status(status).json({ success: false, message });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
@@ -470,4 +515,7 @@ initDatabase().then(() => {
     console.log(`   Admin:   admin@atme.com        / admin123`);
     console.log(`   Student: vikas@student.com      / student123`);
   });
-}).catch(console.error);
+}).catch(err => {
+  console.error('Failed to initialize Campus2Career:', err);
+  process.exitCode = 1;
+});
